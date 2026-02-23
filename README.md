@@ -9,12 +9,12 @@
 | # | Topic | Status |
 |---|-------|--------|
 | 01 | [Data Declarations](./01-data-declarations/README.md) | ✅ |
-| 02 | [String Operations](./02-string-operations/README.md) | 🔜 |
-| 03 | [Internal Tables](./03-internal-tables/README.md) | 🔜 |
-| 04 | [Loops & Conditions](./04-loops-conditions/README.md) | 🔜 |
-| 05 | [Select Statements](./05-select-statements/README.md) | 🔜 |
-| 06 | [OOP in ABAP](./06-oop/README.md) | 🔜 |
-| 07 | [CDS Views](./07-cds-views/README.md) | 🔜 |
+| 02 | [String Operations](./02-string-operations/README.md) | ✅ |
+| 03 | [Internal Tables](./03-internal-tables/README.md) | ✅ |
+| 04 | [Loops & Conditions](./04-loops-conditions/README.md) | ✅ |
+| 05 | [Select Statements](./05-select-statements/README.md) | ✅ |
+| 06 | [OOP in ABAP](./06-oop/README.md) | ✅ |
+| 07 | [CDS Views](./07-cds-views/README.md) | ✅ |
 
 ---
 
