@@ -1,0 +1,443 @@
+*&---------------------------------------------------------------------*
+*& Report ZGK_TEST_GPT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ZGK_TEST_GPT.
+
+*&---------------------------------------------------------------------*
+*& Report ZVX_BACKUP_CODES
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+*REPORT ZVX_BACKUP_CODES.
+*&---------------------------------------------------------------------*
+*&                         TYPE-POOLS
+*&---------------------------------------------------------------------*
+TYPE-POOLS: seop.
+*&---------------------------------------------------------------------*
+*&                         TABLES
+*&---------------------------------------------------------------------*
+TABLES: tadir.
+*&---------------------------------------------------------------------*
+*&                          TYPES
+*&---------------------------------------------------------------------*
+TYPES: abapline(255),
+       BEGIN OF gy_prog,
+         program(40) TYPE c,
+       END OF gy_prog,
+       BEGIN OF gy_incl,
+         program(40) TYPE c,
+         include(40) TYPE c,
+       END OF gy_incl,
+       BEGIN OF gy_comp,
+         pgmid    TYPE pgmid,         "Program ID in Requests & Tasks
+         object   TYPE trobjtype,     "Object Type
+         obj_name TYPE sobj_name,     "Object Name in Object Directory
+         devclass TYPE devclass,      "Package
+       END OF gy_comp,
+       BEGIN OF gy_badi,
+         imp_name TYPE exit_imp,      "Business Add-In Implementation
+       END OF gy_badi,
+       BEGIN OF gy_class,
+         imp_name  TYPE exit_imp,     "Business Add-In Implementation
+         imp_class TYPE seoclsname,   "Object Type Name
+       END OF gy_class,
+       BEGIN OF gy_method,
+         classname  TYPE seoclsname,  "Object Type Name
+         methodname TYPE seocpdname,  "Full Component Name
+         imp_name   TYPE exit_imp,    "Business Add-In Implementation
+       END OF gy_method.
+*&---------------------------------------------------------------------*
+*&                      INTERNAL TABLES
+*&---------------------------------------------------------------------*
+DATA: gt_fm     TYPE STANDARD TABLE OF rs38l_incl,
+      gt_comp   TYPE STANDARD TABLE OF gy_comp,
+      gt_prog   TYPE STANDARD TABLE OF gy_prog,
+      gt_incl   TYPE STANDARD TABLE OF gy_incl,
+      gt_repsr  TYPE STANDARD TABLE OF abapline,
+      gt_badi   TYPE STANDARD TABLE OF gy_badi,
+      gt_class  TYPE STANDARD TABLE OF gy_class,
+      gt_method TYPE STANDARD TABLE OF gy_method,
+      gt_data   TYPE seop_source.
+*&---------------------------------------------------------------------*
+*&                         WORK AREAS
+*&---------------------------------------------------------------------*
+DATA: gs_comp   TYPE gy_comp,
+      gs_prog   TYPE gy_prog,
+      gs_incl   TYPE gy_incl,
+      gs_badi   TYPE gy_badi,
+      gs_class  TYPE gy_class,
+      gs_method TYPE gy_method.
+*&---------------------------------------------------------------------*
+*&                        FIELD-SYMBOLS
+*&---------------------------------------------------------------------*
+FIELD-SYMBOLS: <fs_method> TYPE gy_method.
+*&---------------------------------------------------------------------*
+*&                         VARIABLES
+*&---------------------------------------------------------------------*
+DATA: gv_lines    TYPE i,
+      gv_down     TYPE string,
+      gv_string   TYPE string,
+      gv_fugr(26) TYPE c.
+*&---------------------------------------------------------------------*
+*&                         CONSTANTS
+*&---------------------------------------------------------------------*
+CONSTANTS: gc_i      TYPE c         VALUE 'I',
+           gc_yes    TYPE c         VALUE 'X',
+           gc_eq(2)  TYPE c         VALUE 'EQ',
+           gc_lz(2)  TYPE c         VALUE 'LZ',
+           gc_active TYPE c         VALUE 'A',
+           gc_r3tr   TYPE pgmid     VALUE 'R3TR',
+           gc_fugr   TYPE trobjtype VALUE 'FUGR',
+           gc_prog   TYPE trobjtype VALUE 'PROG',
+           gc_sxci   TYPE trobjtype VALUE 'SXCI',
+           gc_clas   TYPE trobjtype VALUE 'CLAS'.
+*&---------------------------------------------------------------------*
+*&                         RANGES
+*&---------------------------------------------------------------------*
+DATA: r_obj TYPE RANGE OF tadir-object.
+*&---------------------------------------------------------------------*
+*&                       SELECTION SCREEN
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b WITH FRAME TITLE text-001.
+SELECT-OPTIONS: author FOR tadir-author.
+PARAMETERS: package TYPE devclass OBLIGATORY,
+            path TYPE string   OBLIGATORY.
+SELECTION-SCREEN SKIP 1.
+PARAMETERS: badi AS CHECKBOX DEFAULT gc_yes,
+            class AS CHECKBOX DEFAULT gc_yes,
+            fn_grp AS CHECKBOX DEFAULT gc_yes,
+            program AS CHECKBOX DEFAULT gc_yes.
+SELECTION-SCREEN END OF BLOCK b.
+*&---------------------------------------------------------------------*
+*&                      AT SELECTION SCREEN
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN.
+*-- Choose the object type
+  PERFORM choose_obj.
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR path.
+*-- Choose the path
+  PERFORM choose_path.
+*&---------------------------------------------------------------------*
+*&                     START OF SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+*-- Fetching the data from database.
+  PERFORM get_data.
+*&---------------------------------------------------------------------*
+*&      Form  choose_obj
+*&---------------------------------------------------------------------*
+*       To choose the object type
+*----------------------------------------------------------------------*
+FORM choose_obj.
+  DATA: ls_obj LIKE LINE OF r_obj.
+  REFRESH r_obj.
+  CLEAR ls_obj.
+  ls_obj-sign   = gc_i.
+  ls_obj-option = gc_eq.
+  IF fn_grp EQ gc_yes.
+    ls_obj-low = gc_fugr.
+    APPEND ls_obj TO r_obj.
+  ENDIF.
+  IF program EQ gc_yes.
+    ls_obj-low = gc_prog.
+    APPEND ls_obj TO r_obj.
+  ENDIF.
+  IF badi EQ gc_yes.
+    ls_obj-low = gc_sxci.
+    APPEND ls_obj TO r_obj.
+  ENDIF.
+  IF class EQ gc_yes.
+    ls_obj-low = gc_clas.
+    APPEND ls_obj TO r_obj.
+  ENDIF.
+ENDFORM.                    " choose_obj
+*&---------------------------------------------------------------------*
+*&      Form  choose_path
+*&---------------------------------------------------------------------*
+*       To choose the path
+*----------------------------------------------------------------------*
+FORM choose_path.
+  CALL METHOD cl_gui_frontend_services=>directory_browse
+    EXPORTING
+      window_title         = 'SELECT DIRECTORY'
+    CHANGING
+      selected_folder      = path
+    EXCEPTIONS
+      cntl_error           = 1
+      error_no_gui         = 2
+      not_supported_by_gui = 3
+      OTHERS               = 4.
+  IF sy-subrc NE 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+         WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+ENDFORM.                    " choose_path
+*&---------------------------------------------------------------------*
+*&      Form  get_data
+*&---------------------------------------------------------------------*
+*       Fetching the data from database
+*----------------------------------------------------------------------*
+FORM get_data.
+  IF r_obj[] IS INITIAL.
+    MESSAGE s001(00) WITH 'Select object'.
+    EXIT.
+  ENDIF.
+  REFRESH: gt_comp[],gt_fm[],gt_badi[].
+*-- Fetching the data from database table TADIR
+  SELECT pgmid object obj_name devclass
+    FROM tadir
+    INTO TABLE gt_comp BYPASSING BUFFER
+   WHERE pgmid    EQ gc_r3tr
+     AND object   IN r_obj
+     AND devclass EQ package
+     AND author   IN author.
+  IF sy-subrc NE 0.
+    MESSAGE s001(00) WITH 'Package Does Not Exsist'.
+    EXIT.
+  ENDIF.
+  IF gt_comp IS INITIAL.
+    MESSAGE s001(00)
+       WITH 'No Objects Are Available In The Given Package'.
+    EXIT.
+  ENDIF.
+  LOOP AT gt_comp INTO gs_comp.
+    CASE gs_comp-object.
+      WHEN gc_prog.
+        READ REPORT gs_comp-obj_name INTO gt_repsr.
+        DESCRIBE TABLE gt_repsr LINES gv_lines.
+        IF gv_lines GT 1.
+          CONCATENATE path '\Report\'
+                      gs_comp-obj_name '.txt'
+                 INTO gv_down.
+*-- Downloading the reports to frontend server.
+          PERFORM gui_download TABLES gt_repsr.
+          REFRESH gt_repsr.
+        ENDIF.
+      WHEN gc_fugr.                  " Function Group
+*-- To get the function group components of the given package
+        PERFORM get_fungr.
+      WHEN gc_sxci.                  " BAdi
+        gs_badi-imp_name = gs_comp-obj_name.
+        APPEND gs_badi TO gt_badi.
+      WHEN gc_clas.
+        IF NOT  gs_comp-obj_name IS INITIAL.
+          gs_class-imp_class = gs_comp-obj_name.
+          APPEND gs_class TO gt_class.
+        ENDIF.
+    ENDCASE.
+    CLEAR: gs_comp, gs_badi.
+  ENDLOOP.
+*-- To get function modules
+  PERFORM get_fm.
+*-- To get the badi's
+  PERFORM get_badi.
+ENDFORM.                    " get_data
+*&---------------------------------------------------------------------*
+*&      Form  get_fungr
+*&---------------------------------------------------------------------*
+*       To get the function group components of the given package
+*----------------------------------------------------------------------*
+FORM get_fungr.
+  gv_fugr = gs_comp-obj_name.
+  CALL FUNCTION 'RS_FUNCTION_POOL_CONTENTS'
+    EXPORTING
+      function_pool           = gv_fugr
+    TABLES
+      functab                 = gt_fm
+    EXCEPTIONS
+      function_pool_not_found = 1
+      OTHERS                  = 2.
+  IF sy-subrc NE 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+  CLEAR: gv_fugr.
+ENDFORM.                    " get_fungr
+*&---------------------------------------------------------------------*
+*&      Form  get_fm
+*&---------------------------------------------------------------------*
+*       To get function modules
+*----------------------------------------------------------------------*
+FORM get_fm.
+  CHECK gt_fm[] IS NOT INITIAL.
+*-- Fetching the data from database table TFDIR
+  REFRESH gt_prog[].
+  SELECT pname
+    FROM tfdir
+    INTO TABLE gt_prog BYPASSING BUFFER
+     FOR ALL ENTRIES IN gt_fm
+   WHERE funcname = gt_fm-funcname.
+  IF sy-subrc EQ 0.
+*-- To get the includes
+    PERFORM get_include.
+  ENDIF.
+  LOOP AT gt_incl INTO gs_incl.
+    gv_string = gs_incl-include+0(2).
+    IF gv_string = gc_lz.
+      READ REPORT gs_incl-include INTO gt_repsr.
+      CONCATENATE path '\FM\' gs_incl-program '\'
+                                gs_incl-include '.txt'
+             INTO gv_down.
+*-- Downloading the function modules to frontend server
+      PERFORM gui_download TABLES gt_repsr.
+    ENDIF.
+    REFRESH: gt_repsr[].
+  ENDLOOP.                  " To download data
+ENDFORM.                    " get_fm
+*&---------------------------------------------------------------------*
+*&      Form  get_include
+*&---------------------------------------------------------------------*
+*       To get the includes
+*----------------------------------------------------------------------*
+FORM get_include.
+  TYPES: BEGIN OF ly_incl,
+           include(40)  TYPE c,
+         END OF ly_incl.
+  DATA: lt_incl TYPE STANDARD TABLE OF ly_incl,
+        ls_incl TYPE ly_incl.
+  LOOP AT gt_prog INTO gs_prog.
+    CALL FUNCTION 'GET_INCLUDETAB'
+      EXPORTING
+        progname = gs_prog-program
+      TABLES
+        incltab  = lt_incl.
+    LOOP AT lt_incl INTO ls_incl.
+      CLEAR: gs_incl.
+      gs_incl-program = gs_prog-program.
+      gs_incl-include = ls_incl-include.
+      APPEND gs_incl TO gt_incl.
+    ENDLOOP.
+    CLEAR: gs_prog.
+  ENDLOOP.                  " To get the includes
+ENDFORM.                    " get_include
+*&---------------------------------------------------------------------*
+*&      Form  get_badi
+*&---------------------------------------------------------------------*
+*       To get the badi's
+*----------------------------------------------------------------------*
+FORM get_badi.
+  IF NOT gt_badi[] IS INITIAL.
+*  REFRESH: gt_class[].
+*-- Fetching the data from database table SXC_CLASS
+    SELECT imp_name imp_class
+      FROM sxc_class
+ APPENDING TABLE gt_class BYPASSING BUFFER
+       FOR ALL ENTRIES IN gt_badi
+     WHERE imp_name = gt_badi-imp_name.
+  ENDIF.
+  CHECK gt_class[] IS NOT INITIAL.
+  REFRESH: gt_method[].
+*-- Fetching the data from database table TMDIR
+  SELECT classname methodname
+    FROM tmdir
+    INTO TABLE gt_method
+     FOR ALL ENTRIES IN gt_class
+   WHERE classname  EQ gt_class-imp_class
+     AND methodname NE space.
+  SORT gt_class BY imp_class.
+  LOOP AT gt_method ASSIGNING <fs_method>.
+    READ TABLE gt_class INTO gs_class
+                    WITH KEY imp_class = <fs_method>-classname
+               BINARY SEARCH.
+    IF sy-subrc EQ 0.
+<fs_method>-imp_name = gs_class-imp_name.
+    ENDIF.
+  ENDLOOP.
+  LOOP AT gt_method INTO gs_method.
+    PERFORM get_source.
+    DESCRIBE TABLE gt_data LINES gv_lines.
+    IF gv_lines GT 2.
+      IF NOT gs_method-imp_name IS INITIAL.
+        CONCATENATE path '\BAdi\' gs_method-imp_name '\'
+                                    gs_method-methodname '.txt'
+               INTO gv_down.
+      ELSE.
+        CONCATENATE path '\Class\' gs_method-classname '\'
+                                     gs_method-methodname '.txt'
+               INTO gv_down.
+      ENDIF.
+*-- Downloading the badi's to frontend server
+      PERFORM gui_download TABLES gt_data.
+    ENDIF.
+    CLEAR: gs_method.
+    REFRESH: gt_data.
+  ENDLOOP.                  " To download data
+ENDFORM.                    " get_badi
+*&---------------------------------------------------------------------*
+*&      Form  get_source
+*&---------------------------------------------------------------------*
+*       To get the source of the method
+*----------------------------------------------------------------------*
+FORM get_source .
+  TYPES: BEGIN OF ly_method,
+           classname  TYPE seoclsname,  "Object Type Name
+           methodname TYPE seocpdname,  "Full Component Name
+         END OF ly_method.
+  DATA: ls_method TYPE ly_method.
+  ls_method-classname  = gs_method-classname.
+  ls_method-methodname = gs_method-methodname.
+  CALL FUNCTION 'SEO_METHOD_GET_SOURCE'
+    EXPORTING
+      mtdkey                        = ls_method
+      state                         = gc_active
+    IMPORTING
+      source                        = gt_data
+    EXCEPTIONS
+      _internal_method_not_existing = 1
+      _internal_class_not_existing  = 2
+      version_not_existing          = 3
+      inactive_new                  = 4
+      inactive_deleted              = 5
+      OTHERS                        = 6.
+  IF sy-subrc <> 0.
+    EXIT.
+  ENDIF.
+  CLEAR: ls_method.
+ENDFORM.                    " get_source
+*&---------------------------------------------------------------------*
+*&      Form  gui_download
+*&---------------------------------------------------------------------*
+*       To download the files from database to forntend server
+*----------------------------------------------------------------------*
+FORM gui_download TABLES lt_data.
+*-- Function module for download files into local system
+  CALL FUNCTION 'GUI_DOWNLOAD'
+    EXPORTING
+      filename                = gv_down
+    TABLES
+      data_tab                = lt_data
+    EXCEPTIONS
+      file_write_error        = 1
+      no_batch                = 2
+      gui_refuse_filetransfer = 3
+      invalid_type            = 4
+      no_authority            = 5
+      unknown_error           = 6
+      header_not_allowed      = 7
+      separator_not_allowed   = 8
+      filesize_not_allowed    = 9
+      header_too_long         = 10
+      dp_error_create         = 11
+      dp_error_send           = 12
+      dp_error_write          = 13
+      unknown_dp_error        = 14
+      access_denied           = 15
+      dp_out_of_memory        = 16
+      disk_full               = 17
+      dp_timeout              = 18
+      file_not_found          = 19
+      dataprovider_exception  = 20
+      control_flush_error     = 21
+      OTHERS                  = 22.
+  IF sy-subrc NE 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+  CLEAR: gv_down.
+  REFRESH: lt_data.
+*-- After download all the programs to intimate user.
+  MESSAGE s001(00)
+     WITH 'Check Your Folder For The Programs Downloaded'.
+ENDFORM.                    " gui_download
